@@ -539,7 +539,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun SettingsScreen(english: Boolean, onLanguageChange: (Boolean) -> Unit) {
+@Composable private fun SettingsScreen(context: Context, english: Boolean, onLanguageChange: (Boolean) -> Unit) {
     Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
         Text(s("SETTINGS","تنظیمات",english),color=JournalInk,fontSize=22.sp,fontWeight=FontWeight.Bold)
         Text(s("Personalize and control Reminder","شخصی‌سازی و کنترل برنامه Reminder",english),color=Muted,fontSize=10.sp)
