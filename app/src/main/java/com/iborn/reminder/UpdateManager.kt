@@ -48,18 +48,25 @@ object UpdateManager {
             val json = JSONObject(response)
             val assets = json.optJSONArray("assets") ?: throw IllegalStateException("فایل APK در Release پیدا نشد.")
             var apkUrl: String? = null
+            var apkName = ""
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 val name = asset.optString("name")
                 if (name.endsWith(".apk", ignoreCase = true)) {
                     apkUrl = asset.optString("browser_download_url")
+                    apkName = name
                     break
                 }
             }
-            val tag = json.optString("tag_name", "").removePrefix("v")
+            val tag = json.optString("tag_name", "")
+            val title = json.optString("name", "Reminder $tag")
+            val versionPattern = Regex("\\d+(?:\\.\\d+){1,3}")
+            val version = listOf(title, apkName, tag).firstNotNullOfOrNull { source ->
+                versionPattern.find(source)?.value
+            } ?: throw IllegalStateException("شماره نسخه در نام Release یا فایل APK مشخص نیست؛ مثلاً Reminder-3.0.1.apk")
             val resolvedUrl = apkUrl?.takeIf { it.startsWith("https://") }
                 ?: throw IllegalStateException("فایل APK با پسوند apk به Release اضافه نشده است.")
-            Release(tag, json.optString("name", "Reminder $tag"), json.optString("body", ""), resolvedUrl, tag)
+            Release(tag, title, json.optString("body", ""), resolvedUrl, version)
         } finally {
             connection.disconnect()
         }
