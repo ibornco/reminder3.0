@@ -2,6 +2,7 @@ package com.iborn.reminder
 
 import android.Manifest
 import android.app.AlarmManager
+import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -9,12 +10,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.app.DownloadManager
-import android.widget.Toast
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.NumberPicker
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedContent
@@ -45,8 +45,6 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -77,7 +75,7 @@ private val Lilac = Mint
 private val PaleLilac = Color(0xFF20252D)
 private val Ink = Color(0xFFEDF3ED)
 private val Muted = Color(0xFF8C9B91)
-private val AppBlack = Color(0xFF0B100F)
+private val AppBlack = Color(0xFF080D0C)
 private val CardDark = Color(0xFF19231F)
 private val CardDarkAlt = Color(0xFF23322A)
 private val JournalPaper = Color(0xFF0B100F)
@@ -245,64 +243,73 @@ class MainActivity : ComponentActivity() {
     reminders: List<ReminderItem>, batches: List<BatchItem>, english: Boolean,
     openDaily: () -> Unit, openInstallments: () -> Unit, openBirthdays: () -> Unit, openMisc: () -> Unit, openExpiry: () -> Unit
 ) {
-    val reminderStats = remember(reminders) {
-        reminders.fold(intArrayOf(0, 0, 0, 0, 0)) { counts, item ->
-            if (item.done) counts[1]++ else {
-                counts[0]++
-                when (item.category) {
-                    "Daily" -> counts[2]++
-                    "Installments" -> counts[3]++
-                    "Birthdays" -> counts[4]++
-                }
-            }
-            counts
-        }
-    }
-    val pending = reminderStats[0]
-    val completed = reminderStats[1]
-    val expiring = remember(batches) { batches.count { daysUntil(it.expiry) in 0..7 } }
-    var contentVisible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { contentVisible = true }
+    val completed = reminders.count { it.done }
+    val total = reminders.size
+    val progress = if (total == 0) 0f else completed.toFloat() / total
+    val upcoming = remember(reminders) { reminders.filter { !it.done }.sortedBy { it.date + it.time }.take(3) }
+    val actions = listOf(
+        Triple(s("My reminders", "یادآورهای من", english), s("Manage personal reminders", "مدیریت یادآورهای شخصی", english), Icons.Rounded.NotificationsNone),
+        Triple(s("Installments", "اقساط", english), s("Payments and due dates", "پرداخت‌ها و سررسیدها", english), Icons.Rounded.Assignment),
+        Triple(s("Birthdays", "تولدها", english), s("Important dates", "تاریخ‌های مهم", english), Icons.Rounded.Cake),
+        Triple(s("Miscellaneous", "متفرقه", english), s("Other reminders and notes", "یادآورها و یادداشت‌های دیگر", english), Icons.Rounded.CalendarMonth)
+    )
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(JournalPaper).padding(horizontal = 19.dp),
-        contentPadding = PaddingValues(top = 12.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp)
+        modifier = Modifier.fillMaxSize().background(JournalPaper).padding(horizontal = 18.dp),
+        contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            AnimatedVisibility(contentVisible, enter = fadeIn(tween(280)) + slideInVertically(tween(280)) { it / 7 }) {
             Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(s("PERSONAL SPACE", "فضای شخصی", english), color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
-                Text(s("Your life, in order.", "زندگی‌ات، مرتب و منظم.", english), color = JournalInk, fontSize = 27.sp, fontWeight = FontWeight.Bold, letterSpacing = (-.6).sp)
-                Text(s("Private reminders and important dates, saved on this device.", "یادآورها و تاریخ‌های مهمت، فقط روی همین دستگاه ذخیره می‌شوند.", english), color = Muted, fontSize = 12.sp)
-            }
+                Text(s("PERSONAL SPACE", "فضای شخصی", english), color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+                Text(s("Make time for yourself.", "برای خودت وقت بذار", english), color = JournalInk, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                Text(s("Your reminders, plans and everyday activities", "برنامه‌ها، یادآورها و فعالیت‌های شخصی شما", english), color = Muted, fontSize = 11.sp)
             }
         }
         item {
-            AnimatedVisibility(contentVisible, enter = fadeIn(tween(360)) + slideInVertically(tween(360)) { it / 9 }) {
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                PersonalMetric("$pending", "TO DO", Icons.Rounded.NotificationsNone, Modifier.weight(1f), english)
-                PersonalMetric("$completed", "COMPLETED", Icons.Rounded.CheckCircleOutline, Modifier.weight(1f), english)
-                PersonalMetric("$expiring", "EXPIRING", Icons.Rounded.Inventory2, Modifier.weight(1f), english)
-            }
-            }
-        }
-        item { Text(s("YOUR COLLECTIONS", "دسته‌بندی‌های شما", english), color = Muted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, modifier = Modifier.padding(top = 3.dp)) }
-        item { AnimatedVisibility(contentVisible, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 10 }) { PersonalCategoryCard("Daily reminders", "Tasks, plans and everyday notes", reminderStats[2], Icons.Rounded.Event, Mint, openDaily, english) } }
-        item { AnimatedVisibility(contentVisible, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 10 }) { PersonalCategoryCard("Installments", "Payments and upcoming due dates", reminderStats[3], Icons.Rounded.Event, Color(0xFF9DABFF), openInstallments, english) } }
-        item { AnimatedVisibility(contentVisible, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 10 }) { PersonalCategoryCard("Birthdays", "People and dates worth remembering", reminderStats[4], Icons.Rounded.Cake, Color(0xFFFFB5C8), openBirthdays, english) } }
-        item { AnimatedVisibility(contentVisible, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 10 }) { PersonalCategoryCard("Miscellaneous", "Everything else you want to keep close", reminders.count { it.category == "Miscellaneous" && !it.done }, Icons.Rounded.EditNote, Color(0xFFFFC58A), openMisc, english) } }
-        item { AnimatedVisibility(contentVisible, enter = fadeIn(tween(420)) + slideInVertically(tween(420)) { it / 10 }) { PersonalCategoryCard("Personal expiry", "Products and their expiry dates", batches.size, Icons.Rounded.Inventory2, Mint, openExpiry, english) } }
-        item {
-            Surface(shape = RoundedCornerShape(22.dp), color = JournalCard, modifier = Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Rounded.Lock, null, tint = Mint, modifier = Modifier.size(20.dp))
-                    Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("Private by design", "حریم خصوصی از ابتدا", english), color = JournalInk, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-                        Text(s("Personal data stays on this device and is not sent to the Store server.", "اطلاعات شخصی روی همین دستگاه می‌ماند و به سرور فروشگاه ارسال نمی‌شود.", english), color = Muted, fontSize = 10.sp)
-                    }
+            Surface(shape = RoundedCornerShape(24.dp), color = Color(0xFF222C45), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF586A91)), shadowElevation = 9.dp, modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(19.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(s("TODAY IS YOURS", "امروز برای خودت وقت بذار", english), color = Color(0xFFB5C7F3), fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                    Text(s("A productive day ✨", "یک روز پربازده ✨", english), color = Color(0xFFD3E1FF), fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                    Text(s("Organize what matters and move forward with a clear mind.", "کارهای مهمت رو مرتب کن و با خیال راحت جلو برو.", english), color = Color(0xFFB4BFD6), fontSize = 10.sp)
                 }
             }
         }
+        item { Row(verticalAlignment = Alignment.CenterVertically) { Text(s("QUICK ACCESS", "دسترسی سریع", english), color = JournalInk, fontSize = 13.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Text(s("PERSONAL", "فضای شخصی", english), color = Muted, fontSize = 9.sp) } }
+        items(actions.size) { index ->
+            val item = actions[index]
+            val action = when(index) { 0 -> openDaily; 1 -> openInstallments; 2 -> openBirthdays; else -> openMisc }
+            Surface(shape = RoundedCornerShape(19.dp), color = Color(0xFF202D47), border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF465A7C)), shadowElevation = 6.dp, modifier = Modifier.fillMaxWidth().clickable { action() }) {
+                Row(Modifier.padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(44.dp).background(Color(0xFF344563), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(item.third, null, tint = Color(0xFFD3E1FF), modifier = Modifier.size(23.dp)) }
+                    Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(item.first, color = JournalInk, fontSize = 12.sp, fontWeight = FontWeight.Bold); Text(item.second, color = Color(0xFFA9B9D3), fontSize = 9.sp) }
+                    Icon(Icons.Rounded.ChevronLeft, null, tint = Color(0xFFA9B9D3))
+                }
+            }
+        }
+        item {
+            JournalCard(Modifier.fillMaxWidth()) {
+                Row(verticalAlignment = Alignment.CenterVertically) { Text(s("Today's progress", "پیشرفت امروز", english), color = JournalInk, fontSize = 12.sp, fontWeight = FontWeight.Bold); Spacer(Modifier.weight(1f)); Text("${(progress*100).toInt()}%", color = Color(0xFFB9D2FF), fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+                Spacer(Modifier.height(11.dp))
+                Box(Modifier.fillMaxWidth().height(7.dp).background(Color.White.copy(alpha=.10f), CircleShape)) { Box(Modifier.fillMaxWidth(progress).fillMaxHeight().background(Brush.horizontalGradient(listOf(Color(0xFF86AAFF), Color(0xFFD1E0FF))), CircleShape)) }
+                Spacer(Modifier.height(7.dp))
+                Text(s("$completed of $total tasks completed", "$completed کار از $total کار انجام شده", english), color = Muted, fontSize = 9.sp)
+            }
+        }
+        item { Text(s("TODAY'S PLAN", "برنامه امروز", english), color = JournalInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+        item {
+            JournalCard(Modifier.fillMaxWidth()) {
+                if (upcoming.isEmpty()) Text(s("No pending personal tasks", "کار شخصی در انتظاری وجود ندارد", english), color = Muted, fontSize = 11.sp, modifier = Modifier.padding(vertical=8.dp))
+                else upcoming.forEachIndexed { index, reminder ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(9.dp).background(Color(0xFF9EBCFF), CircleShape))
+                        Column(Modifier.weight(1f).padding(horizontal = 11.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) { Text(reminder.title, color = JournalInk, fontSize = 11.sp, fontWeight = FontWeight.SemiBold); Text("${reminder.date} · ${reminder.time}", color = Color(0xFF98A9C2), fontSize = 9.sp) }
+                        Text(s("PENDING", "در انتظار", english), color = Color(0xFF9EBCFF), fontSize = 8.sp)
+                    }
+                    if (index != upcoming.lastIndex) HorizontalDivider(color = Color.White.copy(alpha=.07f))
+                }
+            }
+        }
+        item { Text(s("EXPIRY REMINDERS", "یادآورهای انقضا", english), color = Muted, fontSize = 9.sp, modifier = Modifier.clickable { openExpiry() }) }
     }
 }
 
@@ -337,73 +344,58 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun HomeScreen(
-    reminders: List<ReminderItem>,
-    batches: List<BatchItem>,
-    storeOverview: StoreOverview,
-    english: Boolean,
-    goReminders: () -> Unit,
-    goExpiry: () -> Unit
+    reminders: List<ReminderItem>, batches: List<BatchItem>, storeOverview: StoreOverview,
+    english: Boolean, goReminders: () -> Unit, goExpiry: () -> Unit
 ) {
-    val personalOverview = remember(reminders, batches) {
-        intArrayOf(reminders.count { !it.done }, reminders.count { it.done }, batches.count { daysUntil(it.expiry) in 0..7 })
-    }
-    val pendingPersonal = personalOverview[0]
-    val completedPersonal = personalOverview[1]
-    val personalExpiringLots = personalOverview[2]
+    val pendingPersonal = reminders.count { !it.done }
+    val donePersonal = reminders.count { it.done }
+    val personalPercent = if (reminders.isEmpty()) 0 else donePersonal * 100 / reminders.size
+    val soon = remember(batches) { batches.count { daysUntil(it.expiry) in 0..7 } }
+    val expired = remember(batches) { batches.count { daysUntil(it.expiry) < 0 } }
     val pendingStore = (storeOverview.taskCount - storeOverview.doneCount).coerceAtLeast(0)
-    val today = remember { SimpleDateFormat("EEEE, dd MMM", Locale.ENGLISH).format(Calendar.getInstance().time) }
-    LazyColumn(
-        modifier = Modifier.fillMaxSize().background(JournalPaper).padding(horizontal = 19.dp),
-        contentPadding = PaddingValues(top = 8.dp, bottom = 28.dp),
-        verticalArrangement = Arrangement.spacedBy(15.dp)
-    ) {
+    LazyColumn(Modifier.fillMaxSize().background(JournalPaper).padding(horizontal=18.dp), contentPadding=PaddingValues(top=7.dp,bottom=28.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(s("OVERVIEW", "نمای کلی", english), color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.7.sp)
-                Text(s("Everything at a glance.", "همه‌چیز، یک‌جا.", english), color = JournalInk, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                Text(if (english) today else todayJalali(), color = Muted, fontSize = 11.sp)
+            Column(verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                Text(s("DASHBOARD", "داشبورد", english), color=Mint, fontSize=10.sp, fontWeight=FontWeight.Bold, letterSpacing=1.5.sp)
+                Text(s("Your day at a glance", "خلاصه وضعیت امروز شما", english), color=JournalInk, fontSize=23.sp, fontWeight=FontWeight.Bold)
+                Text(if(english) SimpleDateFormat("EEEE, dd MMM", Locale.ENGLISH).format(Calendar.getInstance().time) else todayJalali(), color=Muted, fontSize=10.sp)
             }
         }
         item {
-            Surface(shape = RoundedCornerShape(25.dp), color = JournalCard, shadowElevation = 8.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .05f)), modifier = Modifier.fillMaxWidth().clickable { goReminders() }) {
-                Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(43.dp).background(Color(0xFF203B37), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.PersonOutline, null, tint = Mint, modifier = Modifier.size(22.dp)) }
-                        Column(Modifier.weight(1f).padding(start = 11.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(s("PERSONAL", "شخصی", english), color = JournalInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text(s("Your reminders and important dates", "یادآورها و تاریخ‌های مهم شما", english), color = Muted, fontSize = 10.sp)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = Muted)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OverviewMetric(pendingPersonal.toString(), s("PENDING", "در انتظار", english), Modifier.weight(1f), Mint)
-                        OverviewMetric(completedPersonal.toString(), s("DONE", "انجام‌شده", english), Modifier.weight(1f), Color(0xFF9DABFF))
-                        OverviewMetric(personalExpiringLots.toString(), s("EXPIRY", "انقضا", english), Modifier.weight(1f), Color(0xFFFFC58A))
-                    }
+            Surface(shape=RoundedCornerShape(24.dp), color=Color(0xFF20392A), border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF668466)), shadowElevation=10.dp, modifier=Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(19.dp), verticalArrangement=Arrangement.spacedBy(7.dp)) {
+                    Text(s("TODAY'S OVERVIEW", "خلاصه فعالیت امروز", english), color=Color(0xFFC3D6C0), fontSize=10.sp)
+                    Text(s("Everything is under control", "همه‌چیز تحت کنترله", english), color=Mint, fontSize=21.sp, fontWeight=FontWeight.ExtraBold)
+                    Text(s("A clear view of your personal activity and store status", "نمای کلی فعالیت‌های شخصی و وضعیت فروشگاه", english), color=Color(0xFFB7C6B8), fontSize=10.sp)
                 }
             }
         }
+        item { Row(verticalAlignment=Alignment.CenterVertically) { Text(s("STORE OVERVIEW", "آمار فروشگاه", english), color=JournalInk, fontSize=13.sp, fontWeight=FontWeight.Bold); Spacer(Modifier.weight(1f)); Text(s("LIVE SUMMARY", "نمای کلی", english), color=Muted, fontSize=9.sp) } }
         item {
-            Surface(shape = RoundedCornerShape(25.dp), color = JournalCard, shadowElevation = 8.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .05f)), modifier = Modifier.fillMaxWidth().clickable { goExpiry() }) {
-                Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(43.dp).background(Color(0xFF203B37), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storefront, null, tint = Mint, modifier = Modifier.size(22.dp)) }
-                        Column(Modifier.weight(1f).padding(start = 11.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(s("STORE", "فروشگاه", english), color = JournalInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                            Text(if (storeOverview.role.isBlank()) s("Store workspace", "فضای کاری فروشگاه", english) else if (storeOverview.role == "manager") s("Manager account", "حساب مدیر", english) else s("Staff account", "حساب پرسنل", english), color = Muted, fontSize = 10.sp)
-                        }
-                        Icon(Icons.Rounded.ChevronRight, null, tint = Muted)
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OverviewMetric(pendingStore.toString(), s("OPEN TASKS", "وظایف باز", english), Modifier.weight(1f), Mint)
-                        OverviewMetric(storeOverview.shiftCount.toString(), s("SHIFTS", "شیفت‌ها", english), Modifier.weight(1f), Color(0xFF9DABFF))
-                        OverviewMetric(storeOverview.expiringCount.toString(), s("EXPIRING", "نزدیک انقضا", english), Modifier.weight(1f), Color(0xFFFFA477))
-                    }
-                    Text(s("${storeOverview.batchCount} expiry lots · ${storeOverview.doneCount} completed tasks", "${storeOverview.batchCount} سری انقضا · ${storeOverview.doneCount} وظیفه انجام‌شده", english), color = Muted, fontSize = 10.sp)
+            Column(verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    OverviewMetric(storeOverview.batchCount.toString(), s("PRODUCT LOTS", "سری انقضا", english), Modifier.weight(1f), Mint)
+                    OverviewMetric(soon.toString(), s("NEAR EXPIRY", "نزدیک انقضا", english), Modifier.weight(1f), Color(0xFFEFB15F))
                 }
+                Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                    OverviewMetric(pendingStore.toString(), s("OPEN TASKS", "وظایف باز", english), Modifier.weight(1f), Color(0xFF91B7EF))
+                    OverviewMetric(storeOverview.shiftCount.toString(), s("SHIFTS", "شیفت‌ها", english), Modifier.weight(1f), Color(0xFF91B7EF))
+                }
+                if (expired > 0) Text(s("$expired expired batches need review", "$expired سری منقضی‌شده نیازمند بررسی است", english), color=Color(0xFFF07878), fontSize=10.sp)
             }
         }
-
+        item { Row(verticalAlignment=Alignment.CenterVertically) { Text(s("PERSONAL OVERVIEW", "آمار شخصی", english), color=JournalInk, fontSize=13.sp, fontWeight=FontWeight.Bold); Spacer(Modifier.weight(1f)); Text(s("TODAY", "امروز", english), color=Muted, fontSize=9.sp) } }
+        item {
+            Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                OverviewMetric(pendingPersonal.toString(), s("ACTIVE REMINDERS", "یادآور فعال", english), Modifier.weight(1f), Mint)
+                OverviewMetric("$personalPercent%", s("TODAY'S PROGRESS", "پیشرفت امروز", english), Modifier.weight(1f), Color(0xFF91B7EF))
+            }
+        }
+        item {
+            Surface(shape=RoundedCornerShape(17.dp), color=Color(0xFF222F2B), border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF35453D)), shadowElevation=5.dp, modifier=Modifier.fillMaxWidth().clickable { goExpiry() }) {
+                Row(Modifier.padding(15.dp), verticalAlignment=Alignment.CenterVertically) { Icon(Icons.Rounded.Storefront,null,tint=Mint); Text(s("Open store management", "ورود به مدیریت فروشگاه", english), color=JournalInk, fontSize=11.sp, fontWeight=FontWeight.Bold, modifier=Modifier.weight(1f).padding(horizontal=10.dp)); Text(s("OPEN  ←", "ورود ←", english), color=Mint, fontSize=10.sp) }
+            }
+        }
     }
 }
 
@@ -445,8 +437,8 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun JournalCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier = modifier, shape = RoundedCornerShape(24.dp), color = JournalCard, shadowElevation = 7.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = .045f))) {
-        Column(Modifier.padding(15.dp), content = content)
+    Surface(modifier = modifier, shape = RoundedCornerShape(20.dp), color = Color.Transparent, shadowElevation = 8.dp, border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF35483C))) {
+        Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF293831), Color(0xFF151F1C))), RoundedCornerShape(20.dp)).padding(15.dp), content = content)
     }
 }
 
@@ -482,89 +474,62 @@ class MainActivity : ComponentActivity() {
     val overviewPrefs = context.getSharedPreferences("reminder_local", Context.MODE_PRIVATE)
     val taskCount = overviewPrefs.getInt("store_task_count", 0)
     val doneCount = overviewPrefs.getInt("store_done_count", 0)
-    Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(s("PROFILE", "پروفایل", english), color = Mint, fontSize = 10.sp, letterSpacing = 1.6.sp, fontWeight = FontWeight.Bold)
-        Text(s("Your account", "حساب کاربری", english), color = JournalInk, fontSize = 28.sp, fontWeight = FontWeight.Bold)
+    val profileBg = Brush.linearGradient(listOf(Color(0xFF405E45),Color(0xFF20382A),Color(0xFF15231B)))
+    Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(horizontal=18.dp, vertical=10.dp), verticalArrangement=Arrangement.spacedBy(14.dp)) {
+        Text(s("MY PROFILE", "پروفایل من", english), color=JournalInk, fontSize=22.sp, fontWeight=FontWeight.Bold)
+        Text(s("Account information and activity status", "اطلاعات حساب و وضعیت فعالیت شما", english), color=Muted, fontSize=10.sp)
+        Surface(shape=RoundedCornerShape(24.dp), color=Color(0xFF20382A), border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF698568)), shadowElevation=10.dp, modifier=Modifier.fillMaxWidth()) {
+            Column(Modifier.background(profileBg).padding(18.dp), verticalArrangement=Arrangement.spacedBy(16.dp)) {
+                Row(verticalAlignment=Alignment.CenterVertically) {
+                    Box(Modifier.size(68.dp).background(Brush.linearGradient(listOf(Color(0xFF789B73),Color(0xFF314B36))),RoundedCornerShape(22.dp)).border(2.dp,Color(0xFFA6CB9D),RoundedCornerShape(22.dp)),contentAlignment=Alignment.Center) { Icon(Icons.Rounded.Person,null,tint=Color.White,modifier=Modifier.size(32.dp)) }
+                    Column(Modifier.padding(start=13.dp), verticalArrangement=Arrangement.spacedBy(5.dp)) {
+                        Text(displayName ?: s("Local user", "کاربر محلی", english), color=Color.White, fontSize=17.sp, fontWeight=FontWeight.Bold)
+                        Text(if(role=="manager") s("System manager","مدیر سیستم",english) else if(role=="staff") s("Store staff","پرسنل فروشگاه",english) else s("Personal account","حساب شخصی",english), color=Color(0xFFC1D2BF), fontSize=10.sp)
+                        Text(s("✦ Active account", "✦ حساب فعال", english), color=Mint, fontSize=9.sp)
+                    }
+                }
+                Column(verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        ProfileInfoCell(s("USER ID","شناسه کاربری",english),username ?: "LOCAL",Modifier.weight(1f))
+                        ProfileInfoCell(s("ACCESS LEVEL","سطح دسترسی",english),if(role=="manager") s("Full management","مدیریت کامل",english) else if(role=="staff") s("Staff","پرسنل",english) else s("Personal","شخصی",english),Modifier.weight(1f))
+                    }
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        ProfileInfoCell(s("ACCOUNT STATUS","وضعیت حساب",english),if(storeAccountActive) s("Connected","متصل",english) else s("Local","محلی",english),Modifier.weight(1f))
+                        ProfileInfoCell(s("LAST ACTIVITY","آخرین فعالیت",english),s("Today","امروز",english),Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+        Text(s("ACCOUNT & INFORMATION", "اطلاعات و حساب", english), color=JournalInk, fontSize=13.sp, fontWeight=FontWeight.Bold)
         JournalCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(58.dp).background(Color(0xFF203B37), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Person, null, tint = Mint, modifier = Modifier.size(29.dp))
-                }
-                Column(Modifier.padding(start = 13.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(displayName ?: s("Reminder user", "کاربر یادآور", english), color = JournalInk, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                    Text(if (!username.isNullOrBlank()) "@$username" else s("Personal workspace", "فضای شخصی", english), color = Muted, fontSize = 11.sp)
-                    Text(if (role == "manager") s("STORE MANAGER", "مدیر فروشگاه", english) else if (role == "staff") s("STORE STAFF", "پرسنل فروشگاه", english) else s("LOCAL PROFILE", "حساب محلی", english), color = Mint, fontSize = 8.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                }
-            }
-        }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Shield, null, tint = Mint)
-                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(s("Privacy", "حریم خصوصی", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                    Text(s("Personal reminders stay on this device.", "یادآورهای شخصی روی همین دستگاه باقی می‌مانند.", english), color = Muted, fontSize = 11.sp)
+            ProfileActionRow(Icons.Rounded.PersonOutline,s("Personal information","اطلاعات شخصی",english),s("Name and account details","نام و مشخصات حساب",english))
+            ProfileActionRow(Icons.Rounded.Lock,s("Account security","امنیت حساب",english),s("Security and access management","مدیریت امنیت و دسترسی",english))
+            ProfileActionRow(Icons.Rounded.History,s("Activity report","گزارش فعالیت‌ها",english),s("Your activity history","سوابق فعالیت در برنامه",english))
+            ProfileActionRow(Icons.Rounded.Business,s("Workplace information","اطلاعات محل کار",english),s("Store workspace details","مشخصات مجموعه",english))
+            if(storeAccountActive) {
+                Row(Modifier.fillMaxWidth().clickable(enabled=!loggingOut) { scope.launch { loggingOut=true; runCatching { storeApi.logout() }; storeProfile.edit().clear().apply(); displayName=null; username=null; role=null; scheduleManagerNightly(context,false); storeAccountActive=false; loggingOut=false } }.padding(vertical=12.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Box(Modifier.size(36.dp).background(Color(0xFF3A252A),RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center) { Icon(Icons.Rounded.ExitToApp,null,tint=Color(0xFFFFA6A6)) }
+                    Column(Modifier.weight(1f).padding(horizontal=11.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) { Text(s("Sign out","خروج از حساب",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(s("Securely sign out of this device","خروج امن از برنامه",english),color=Muted,fontSize=9.sp) }
+                    if(loggingOut) CircularProgressIndicator(Modifier.size(16.dp),strokeWidth=2.dp,color=Mint) else Icon(Icons.Rounded.ChevronLeft,null,tint=Muted)
                 }
             }
         }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(11.dp)) {
-                Text(s("ACCOUNT DETAILS", "جزئیات حساب", english), color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("Account status", "وضعیت حساب", english), color = Muted, fontSize = 10.sp)
-                        Text(if (storeAccountActive) s("Connected", "متصل", english) else s("Local profile", "حساب محلی", english), color = JournalInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF203B37)) {
-                        Text(if (storeAccountActive) s("CONNECTED", "متصل", english) else s("LOCAL", "محلی", english), color = Mint, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp))
-                    }
-                }
-                HorizontalDivider(color = Color.White.copy(alpha = .06f))
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("Access level", "سطح دسترسی", english), color = Muted, fontSize = 10.sp)
-                        Text(if (role == "manager") s("Manager", "مدیر", english) else if (role == "staff") s("Staff", "پرسنل", english) else s("Personal", "شخصی", english), color = JournalInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("App version", "نسخه برنامه", english), color = Muted, fontSize = 10.sp)
-                        Text("2.9.3", color = JournalInk, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                    }
-                }
-            }
-        }
-        Text(if (displayName != null) s("Store account information is synced from your active Store session.", "اطلاعات حساب فروشگاه از نشست فعال شما دریافت می‌شود.", english) else s("Connect your Store account to display your name and role here.", "برای نمایش نام و نقش، وارد حساب فروشگاه شوید.", english), color = Muted, fontSize = 11.sp)
-        if (storeAccountActive) {
-            JournalCard(Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(s("STORE ACCOUNT", "حساب فروشگاه", english), color = Mint, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        ProfileStat(if (role == "manager") "MANAGER" else "STAFF", s("ROLE", "نقش", english), Modifier.weight(1f))
-                        ProfileStat(taskCount.toString(), s("TASKS", "وظایف", english), Modifier.weight(1f))
-                        ProfileStat(doneCount.toString(), s("DONE", "انجام‌شده", english), Modifier.weight(1f))
-                    }
-                    Button(
-                        onClick = {
-                            scope.launch {
-                                loggingOut = true
-                                runCatching { storeApi.logout() }
-                                storeProfile.edit().clear().apply()
-                                displayName = null
-                                username = null
-                                role = null
-                                scheduleManagerNightly(context, false)
-                                storeAccountActive = false
-                                loggingOut = false
-                            }
-                        },
-                        enabled = !loggingOut,
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF3A252A), contentColor = Color(0xFFFFA6A6))
-                    ) {
-                        Text(s(if (loggingOut) "Signing out…" else "Log out of Store", if (loggingOut) "در حال خروج…" else "خروج از حساب فروشگاه", english), fontWeight = FontWeight.Bold)
-                    }
-                }
-            }
-        }
+        Text(s("ABOUT THE APP", "درباره برنامه", english), color=JournalInk, fontSize=13.sp, fontWeight=FontWeight.Bold)
+        Row(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF222F2B),Color(0xFF151E1D))),RoundedCornerShape(17.dp)).border(1.dp,Color(0xFF35453D),RoundedCornerShape(17.dp)).padding(15.dp),verticalAlignment=Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(s("Application version","نسخه برنامه",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text("Reminder Premium",color=Muted,fontSize=9.sp) }; Text("2.9.3",color=Mint,fontSize=12.sp,fontWeight=FontWeight.Bold) }
     }
+}
+
+@Composable private fun ProfileInfoCell(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.background(Color(0x80102018),RoundedCornerShape(12.dp)).border(1.dp,Color.White.copy(alpha=.08f),RoundedCornerShape(12.dp)).padding(11.dp),verticalArrangement=Arrangement.spacedBy(5.dp)) { Text(label,color=Color(0xFFA9B9A8),fontSize=8.sp); Text(value,color=Color.White,fontSize=10.sp,fontWeight=FontWeight.SemiBold,maxLines=1) }
+}
+
+@Composable private fun ProfileActionRow(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, subtitle: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+        Box(Modifier.size(36.dp).background(Color(0xFF293B2E),RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center) { Icon(icon,null,tint=Mint,modifier=Modifier.size(18.dp)) }
+        Column(Modifier.weight(1f).padding(horizontal=11.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) { Text(title,color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(subtitle,color=Muted,fontSize=9.sp) }
+        Icon(Icons.Rounded.ChevronLeft,null,tint=Color(0xFF91A097))
+    }
+    HorizontalDivider(color=Color.White.copy(alpha=.06f))
 }
 
 @Composable private fun ProfileStat(value: String, label: String, modifier: Modifier = Modifier) {
@@ -574,131 +539,102 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun SettingsScreen(context: Context, english: Boolean, onLanguageChange: (Boolean) -> Unit) {
+@Composable private fun SettingsScreen(english: Boolean, onLanguageChange: (Boolean) -> Unit) {
+    Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(horizontal=18.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(13.dp)) {
+        Text(s("SETTINGS","تنظیمات",english),color=JournalInk,fontSize=22.sp,fontWeight=FontWeight.Bold)
+        Text(s("Personalize and control Reminder","شخصی‌سازی و کنترل برنامه Reminder",english),color=Muted,fontSize=10.sp)
+        Text(s("GENERAL","عمومی",english),color=JournalInk,fontSize=13.sp,fontWeight=FontWeight.Bold)
+        JournalCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment=Alignment.CenterVertically) { SettingIcon(Icons.Rounded.Palette); Column(Modifier.weight(1f).padding(horizontal=10.dp)) { Text(s("Appearance","ظاهر برنامه",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(s("Dark and light theme","تم تاریک و روشن",english),color=Muted,fontSize=9.sp) }; Text(s("Dark","تاریک",english),color=Muted,fontSize=10.sp) }
+            HorizontalDivider(Modifier.padding(vertical=10.dp),color=Color.White.copy(alpha=.06f))
+            Row(verticalAlignment=Alignment.CenterVertically) { SettingIcon(Icons.Rounded.Language); Column(Modifier.weight(1f).padding(horizontal=10.dp)) { Text(s("App language","زبان برنامه",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(s("Menu display language","زبان نمایش منوها",english),color=Muted,fontSize=9.sp) } }
+            Row(Modifier.fillMaxWidth().padding(top=10.dp).background(Color(0xFF102018),RoundedCornerShape(12.dp)).padding(4.dp),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+                listOf(true to "English",false to "فارسی").forEach { (isEnglish,label) -> Surface(Modifier.weight(1f).clickable { onLanguageChange(isEnglish) },shape=RoundedCornerShape(10.dp),color=if(english==isEnglish) Mint else Color.Transparent) { Text(label,Modifier.padding(vertical=9.dp),textAlign=TextAlign.Center,color=if(english==isEnglish) Color(0xFF102B27) else JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold) } }
+            }
+            HorizontalDivider(Modifier.padding(vertical=10.dp),color=Color.White.copy(alpha=.06f))
+            Row(verticalAlignment=Alignment.CenterVertically) { SettingIcon(Icons.Rounded.CalendarMonth); Column(Modifier.weight(1f).padding(horizontal=10.dp)) { Text(s("Calendar type","نوع تقویم",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(s("Date display","نمایش تاریخ‌ها",english),color=Muted,fontSize=9.sp) }; Text(s("Jalali","شمسی",english),color=Muted,fontSize=10.sp) }
+        }
+        Text(s("NOTIFICATIONS & REMINDERS","اعلان‌ها و یادآورها",english),color=JournalInk,fontSize=13.sp,fontWeight=FontWeight.Bold)
+        JournalCard(Modifier.fillMaxWidth()) {
+            Row(verticalAlignment=Alignment.CenterVertically) { SettingIcon(Icons.Rounded.NotificationsActive); Column(Modifier.weight(1f).padding(horizontal=10.dp)) { Text(s("App notifications","اعلان‌های برنامه",english),color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(s("Required for correct app operation","برای عملکرد صحیح برنامه ضروری است",english),color=Muted,fontSize=9.sp) }; Surface(shape=RoundedCornerShape(10.dp),color=Color(0xFF293E2D),border=androidx.compose.foundation.BorderStroke(1.dp,Color(0xFF5C7E58))) { Text("🔒  "+s("ALWAYS ON","همیشه روشن",english),Modifier.padding(horizontal=9.dp,vertical=7.dp),color=Mint,fontSize=8.sp,fontWeight=FontWeight.Bold) } }
+            HorizontalDivider(Modifier.padding(vertical=10.dp),color=Color.White.copy(alpha=.06f))
+            SettingSimpleRow(Icons.Rounded.Alarm,s("Personal reminders","یادآوری‌های شخصی",english),s("Alerts at scheduled times","اعلان در زمان تعیین‌شده",english),s("Active","فعال",english))
+            HorizontalDivider(Modifier.padding(vertical=10.dp),color=Color.White.copy(alpha=.06f))
+            SettingSimpleRow(Icons.Rounded.Inventory2,s("Expiry alerts","هشدار انقضا",english),s("Notifications for sensitive products","اطلاع‌رسانی محصولات حساس",english),s("Active","فعال",english))
+        }
+        UpdateSettingsCard(context, english)
+        Text(s("ABOUT & SUPPORT","درباره و پشتیبانی",english),color=JournalInk,fontSize=13.sp,fontWeight=FontWeight.Bold)
+        JournalCard(Modifier.fillMaxWidth()) { SettingSimpleRow(Icons.Rounded.HelpOutline,s("Help & support","راهنما و پشتیبانی",english),s("Help and usage guide","کمک و آموزش استفاده",english),"‹"); HorizontalDivider(Modifier.padding(vertical=10.dp),color=Color.White.copy(alpha=.06f)); SettingSimpleRow(Icons.Rounded.Info,s("About Reminder","درباره Reminder",english),s("Version and app information","اطلاعات نسخه و برنامه",english),"3.0.0") }
+        Text(s("🔒 Core notifications cannot be disabled because Reminder needs them to deliver your alerts.","🔒 اعلان‌های اصلی برنامه قابل خاموش کردن نیستند؛ چون Reminder برای یادآوری به‌موقع کارها به آن‌ها نیاز دارد.",english),color=Muted,fontSize=9.sp,lineHeight=17.sp,modifier=Modifier.padding(horizontal=3.dp))
+    }
+}
+
+@Composable private fun UpdateSettingsCard(context: Context, english: Boolean) {
     var updateStatus by remember { mutableStateOf("") }
     var latestRelease by remember { mutableStateOf<UpdateManager.Release?>(null) }
     var checkingUpdate by remember { mutableStateOf(false) }
-    val updateScope = rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val currentVersion = remember { context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "3.0.0" }
-    Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(s("SETTINGS", "تنظیمات", english), color = Mint, fontSize = 10.sp, letterSpacing = 1.5.sp, fontWeight = FontWeight.Bold)
-        Text(s("Make it yours.", "برنامه را مطابق سلیقه‌ات تنظیم کن.", english), color = JournalInk, fontSize = 25.sp, fontWeight = FontWeight.Bold)
-        JournalCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Language, null, tint = Mint) }
-                    Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("Language", "زبان برنامه", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                        Text(s("Choose your preferred language", "زبان موردنظر خود را انتخاب کن", english), color = Muted, fontSize = 11.sp)
-                    }
+    JournalCard(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SettingIcon(Icons.Rounded.SystemUpdate)
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(s("App updates", "به‌روزرسانی برنامه", english), color = JournalInk, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                Text(s("Current version: $currentVersion", "نسخه نصب‌شده: $currentVersion", english), color = Muted, fontSize = 9.sp)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Button(onClick = {
+            if (!checkingUpdate) {
+                checkingUpdate = true
+                updateStatus = s("Checking GitHub Releases…", "در حال بررسی نسخه‌های GitHub…", english)
+                scope.launch {
+                    try {
+                        val release = UpdateManager.checkLatest(context)
+                        latestRelease = release
+                        updateStatus = if (UpdateManager.isNewer(currentVersion, release.version))
+                            s("A new version is available: ${release.version}", "نسخه جدید ${release.version} موجود است.", english)
+                        else s("You are using the latest version.", "برنامه شما به‌روز است.", english)
+                    } catch (e: Exception) {
+                        updateStatus = e.message ?: s("Update check failed.", "بررسی به‌روزرسانی ناموفق بود.", english)
+                    } finally { checkingUpdate = false }
                 }
-                Row(Modifier.fillMaxWidth().background(Color(0xFF20232C), RoundedCornerShape(14.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(true to "English", false to "فارسی").forEach { (isEnglish, label) ->
-                        Surface(
-                            modifier = Modifier.weight(1f).clickable { onLanguageChange(isEnglish) },
-                            shape = RoundedCornerShape(11.dp),
-                            color = if (english == isEnglish) Mint else Color.Transparent
-                        ) {
-                            Text(label, modifier = Modifier.padding(vertical = 11.dp), textAlign = TextAlign.Center,
-                                color = if (english == isEnglish) Color(0xFF102B27) else JournalInk,
-                                fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        }
-                    }
+            }
+        }, enabled = !checkingUpdate, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Color(0xFF102B27))) {
+            if (checkingUpdate) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp) else Icon(Icons.Rounded.Refresh, null)
+            Spacer(Modifier.width(8.dp))
+            Text(s("Check for updates", "بررسی به‌روزرسانی", english), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        }
+        latestRelease?.let { release ->
+            if (UpdateManager.isNewer(currentVersion, release.version)) {
+                Text(release.title, color = JournalInk, fontSize = 11.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 9.dp))
+                if (release.notes.isNotBlank()) Text(release.notes.take(700), color = Muted, fontSize = 9.sp, modifier = Modifier.padding(top = 4.dp))
+                Button(onClick = {
+                    try {
+                        UpdateManager.download(context, release)
+                        updateStatus = s("Download started.", "دانلود شروع شد.", english)
+                    } catch (e: Exception) { updateStatus = e.message ?: "Download failed" }
+                }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = CardDarkAlt, contentColor = Mint)) {
+                    Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(7.dp)); Text(s("Download update", "دانلود نسخه جدید", english), fontSize = 11.sp)
                 }
             }
         }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.SystemUpdate, null, tint = Mint) }
-                    Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text(s("App updates", "به‌روزرسانی برنامه", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                        Text(s("Current version: $currentVersion", "نسخه نصب‌شده: $currentVersion", english), color = Muted, fontSize = 11.sp)
-                    }
-                }
-                Button(
-                    onClick = {
-                        if (!checkingUpdate) {
-                            checkingUpdate = true
-                            updateStatus = s("Checking GitHub Releases…", "در حال بررسی نسخه‌های GitHub…", english)
-                            updateScope.launch {
-                                try {
-                                    val release = UpdateManager.checkLatest(context)
-                                    latestRelease = release
-                                    updateStatus = if (UpdateManager.isNewer(currentVersion, release.version))
-                                        s("A new version is available: ${release.version}", "نسخه جدید ${release.version} موجود است.", english)
-                                    else s("You are using the latest version.", "برنامه شما به‌روز است.", english)
-                                } catch (e: Exception) {
-                                    updateStatus = e.message ?: s("Update check failed.", "بررسی به‌روزرسانی ناموفق بود.", english)
-                                } finally { checkingUpdate = false }
-                            }
-                        }
-                    }, enabled = !checkingUpdate, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = Color(0xFF102B27))
-                ) {
-                    if (checkingUpdate) CircularProgressIndicator(Modifier.size(17.dp), strokeWidth = 2.dp)
-                    else Icon(Icons.Rounded.Refresh, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(s("Check for updates", "بررسی به‌روزرسانی", english), fontWeight = FontWeight.Bold)
-                }
-                latestRelease?.let { release ->
-                    if (UpdateManager.isNewer(currentVersion, release.version)) {
-                        Text(release.title, color = JournalInk, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                        if (release.notes.isNotBlank()) Text(release.notes.take(900), color = Muted, fontSize = 11.sp)
-                        Button(onClick = {
-                            try {
-                                UpdateManager.download(context, release)
-                                updateStatus = s("Download started. You can continue using the app.", "دانلود شروع شد؛ می‌توانی به کار با برنامه ادامه بدهی.", english)
-                            } catch (e: Exception) { updateStatus = e.message ?: "Download failed" }
-                        }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = CardDarkAlt, contentColor = Mint)) {
-                            Icon(Icons.Rounded.Download, null); Spacer(Modifier.width(8.dp)); Text(s("Download update", "دانلود نسخه جدید", english))
-                        }
-                    }
-                }
-                if (UpdateManager.downloadedId(context) >= 0) {
-                    OutlinedButton(onClick = {
-                        val started = UpdateManager.installDownloaded(context)
-                        if (!started) updateStatus = s("Allow installs from this app in Android settings, then tap Install again.", "مجوز نصب از این برنامه را در تنظیمات اندروید فعال کن و دوباره نصب را بزن.", english)
-                    }, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Rounded.InstallMobile, null); Spacer(Modifier.width(8.dp)); Text(s("Install downloaded update", "نصب آپدیت دانلودشده", english))
-                    }
-                }
-                if (updateStatus.isNotBlank()) Text(updateStatus, color = Muted, fontSize = 11.sp)
+        if (UpdateManager.downloadedId(context) >= 0) {
+            OutlinedButton(onClick = {
+                val started = UpdateManager.installDownloaded(context)
+                if (!started) updateStatus = s("Allow installs from this app in Android settings, then tap Install again.", "مجوز نصب از این برنامه را در تنظیمات اندروید فعال کن و دوباره نصب را بزن.", english)
+            }, modifier = Modifier.fillMaxWidth().padding(top = 7.dp)) {
+                Icon(Icons.Rounded.InstallMobile, null); Spacer(Modifier.width(7.dp)); Text(s("Install downloaded update", "نصب آپدیت دانلودشده", english), fontSize = 10.sp)
             }
         }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.NotificationsActive, null, tint = Mint) }
-                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(s("Notifications", "اعلان‌ها", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                    Text(s("Reminder alerts are handled by Android.", "اعلان یادآورها توسط اندروید مدیریت می‌شود.", english), color = Muted, fontSize = 11.sp)
-                }
-                Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF203B37)) {
-                    Text(s("ON", "روشن", english), color = Mint, fontSize = 9.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 11.dp, vertical = 7.dp))
-                }
-            }
-        }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Storage, null, tint = Mint) }
-                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(s("Local storage", "ذخیره‌سازی محلی", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                    Text(s("Your personal data remains on this phone.", "اطلاعات شخصی فقط روی همین گوشی ذخیره می‌شود.", english), color = Muted, fontSize = 11.sp)
-                }
-                Icon(Icons.Rounded.CheckCircle, null, tint = Mint)
-            }
-        }
-        JournalCard(Modifier.fillMaxWidth()) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(42.dp).background(Mint.copy(alpha = .12f), RoundedCornerShape(14.dp)), contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Palette, null, tint = Mint) }
-                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(s("Visual style", "ظاهر برنامه", english), color = JournalInk, fontWeight = FontWeight.SemiBold)
-                    Text(s("Dark Slate · Mint", "اسلیت تیره · نعنایی", english), color = Muted, fontSize = 11.sp)
-                }
-                Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF203B37)) { Text(s("ACTIVE", "فعال", english), color = Mint, fontSize = 8.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) }
-            }
-        }
-        Text(s("Reminder 3.0.0 · Designed for focus", "یادآور ۳.۰.۰ · طراحی‌شده برای تمرکز", english), color = Muted, fontSize = 10.sp, modifier = Modifier.padding(top = 5.dp))
+        if (updateStatus.isNotBlank()) Text(updateStatus, color = Muted, fontSize = 9.sp, modifier = Modifier.padding(top = 7.dp))
     }
+}
+
+@Composable private fun SettingIcon(icon: androidx.compose.ui.graphics.vector.ImageVector) { Box(Modifier.size(36.dp).background(Color(0xFF2B3C31),RoundedCornerShape(11.dp)),contentAlignment=Alignment.Center) { Icon(icon,null,tint=Mint,modifier=Modifier.size(18.dp)) } }
+
+@Composable private fun SettingSimpleRow(icon: androidx.compose.ui.graphics.vector.ImageVector,title:String,subtitle:String,end:String) {
+    Row(verticalAlignment=Alignment.CenterVertically) { SettingIcon(icon); Column(Modifier.weight(1f).padding(horizontal=10.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) { Text(title,color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text(subtitle,color=Muted,fontSize=9.sp) }; Text(end,color=Muted,fontSize=9.sp) }
 }
 
 @Composable private fun OverviewStat(label: String, value: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier = Modifier) {
@@ -778,15 +714,94 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable private fun ExpiryScreen(batches: List<BatchItem>, categories: List<String>, english: Boolean, add: () -> Unit, delete: (BatchItem) -> Unit) {
-    val grouped = remember(batches) { batches.groupBy { it.category }.mapValues { (_, lots) -> lots.sortedBy { daysUntil(it.expiry) } } }
+    val todayParts = remember { todayJalali().split('/').map { it.toInt() } }
+    var year by remember { mutableIntStateOf(todayParts[0]) }
+    var month by remember { mutableIntStateOf(todayParts[1]) }
+    var selectedDay by remember { mutableIntStateOf(todayParts[2]) }
+    val monthNamesFa = listOf("فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور","مهر","آبان","آذر","دی","بهمن","اسفند")
+    val monthNamesEn = listOf("Farvardin","Ordibehesht","Khordad","Tir","Mordad","Shahrivar","Mehr","Aban","Azar","Dey","Bahman","Esfand")
+    val monthLength = if (month <= 6) 31 else if (month <= 11) 30 else {
+        val start = jalaliToGregorian(year,1,1); val next = jalaliToGregorian(year+1,1,1)
+        val days = ChronoUnit.DAYS.between(LocalDate.of(start[0],start[1],start[2]),LocalDate.of(next[0],next[1],next[2])).toInt()
+        if (days == 366) 30 else 29
+    }
+    val firstGregorian = remember(year,month) { jalaliToGregorian(year,month,1) }
+    val firstWeekday = (LocalDate.of(firstGregorian[0],firstGregorian[1],firstGregorian[2]).dayOfWeek.value + 1) % 7
+    val daysGrid = (List<Int?>(firstWeekday) { null } + (1..monthLength).map { it }).chunked(7).map { row -> row + List(7-row.size) { null } }
+    val selectedLots = remember(batches,year,month,selectedDay) { batches.filter { it.expiry == "%04d/%02d/%02d".format(year,month,selectedDay) } }
     val soonCount = remember(batches) { batches.count { daysUntil(it.expiry) in 0..7 } }
     val expiredCount = remember(batches) { batches.count { daysUntil(it.expiry) < 0 } }
-    Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
-        SectionTitle(s("Product expiry", "انقضای محصولات", english), s("Track multiple batches for each product", "برای هر محصول چند سری ثبت کن", english), add)
-        Row(horizontalArrangement = Arrangement.spacedBy(7.dp), modifier = Modifier.padding(bottom = 12.dp)) { MiniInfo(s("Batches", "کل سری‌ها", english), batches.size.toString(), Modifier.weight(1f)); MiniInfo(s("Soon", "نزدیک انقضا", english), soonCount.toString(), Modifier.weight(1f)); MiniInfo(s("Expired", "منقضی‌شده", english), expiredCount.toString(), Modifier.weight(1f)) }
-        if (batches.isEmpty()) EmptyState(s("No products added", "هنوز محصولی ثبت نکردی", english), s("Add manually or scan a barcode", "محصول رو دستی وارد کن یا بارکدش رو اسکن کن", english)) else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 20.dp)) {
-            grouped.forEach { (category, lots) -> item { Text(category, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Lilac, modifier = Modifier.padding(top = 9.dp, bottom = 2.dp)) }; items(lots, key = { it.id }) { BatchRow(it, english) { delete(it) } } }
+    fun shiftMonth(delta: Int) {
+        val next = month + delta
+        if (next < 1) { month = 12; year-- } else if (next > 12) { month = 1; year++ } else month = next
+        selectedDay = 1
+    }
+    fun digits(value: String) = if (english) value else value.map { ch -> if (ch in '0'..'9') "۰۱۲۳۴۵۶۷۸۹"[ch-'0'] else ch }.joinToString("")
+    Column(Modifier.fillMaxSize().background(JournalPaper).verticalScroll(rememberScrollState()).padding(horizontal=18.dp), verticalArrangement=Arrangement.spacedBy(13.dp)) {
+        Row(Modifier.fillMaxWidth().padding(top=6.dp), verticalAlignment=Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                Text(s("PRODUCT EXPIRY", "تقویم انقضا", english), color=Mint, fontSize=10.sp, fontWeight=FontWeight.Bold, letterSpacing=1.5.sp)
+                Text(s("Expiry calendar", "تقویم انقضای محصولات", english), color=JournalInk, fontSize=22.sp, fontWeight=FontWeight.Bold)
+                Text(s("Review valid, critical and expired batches", "بررسی سری‌های معتبر، بحرانی و منقضی‌شده", english), color=Muted, fontSize=10.sp)
+            }
+            Surface(shape=RoundedCornerShape(14.dp),color=Mint,modifier=Modifier.size(42.dp).clickable { add() }) { Box(contentAlignment=Alignment.Center) { Icon(Icons.Rounded.Add,null,tint=Color(0xFF102B27)) } }
         }
+        Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            MiniInfo(s("Batches", "کل سری‌ها", english), batches.size.toString(), Modifier.weight(1f))
+            MiniInfo(s("Near expiry", "نزدیک انقضا", english), soonCount.toString(), Modifier.weight(1f))
+            MiniInfo(s("Expired", "منقضی‌شده", english), expiredCount.toString(), Modifier.weight(1f))
+        }
+        JournalCard(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.SpaceBetween) {
+                Surface(shape=RoundedCornerShape(11.dp),color=Color(0xFF344438),modifier=Modifier.size(34.dp).clickable { shiftMonth(-1) }) { Box(contentAlignment=Alignment.Center) { Icon(Icons.Rounded.ChevronLeft,null,tint=Mint) } }
+                Column(horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                    Text("${if(english) monthNamesEn[month-1] else monthNamesFa[month-1]} ${digits(year.toString())}",color=JournalInk,fontSize=14.sp,fontWeight=FontWeight.Bold)
+                    Text(s("JALALI CALENDAR","تقویم شمسی",english),color=Muted,fontSize=8.sp)
+                }
+                Surface(shape=RoundedCornerShape(11.dp),color=Color(0xFF344438),modifier=Modifier.size(34.dp).clickable { shiftMonth(1) }) { Box(contentAlignment=Alignment.Center) { Icon(Icons.Rounded.ChevronRight,null,tint=Mint) } }
+            }
+            Spacer(Modifier.height(10.dp))
+            val weekFa = listOf("ش","ی","د","س","چ","پ","ج")
+            val weekEn = listOf("Sa","Su","Mo","Tu","We","Th","Fr")
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) { (if(english) weekEn else weekFa).forEach { Text(it,Modifier.weight(1f),textAlign=TextAlign.Center,color=Muted,fontSize=9.sp,fontWeight=FontWeight.Bold) } }
+            Spacer(Modifier.height(5.dp))
+            daysGrid.forEach { week ->
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                    week.forEach { day ->
+                        if(day==null) Box(Modifier.weight(1f).height(39.dp))
+                        else {
+                            val dateKey = "%04d/%02d/%02d".format(year,month,day)
+                            val lots = batches.filter { it.expiry == dateKey }
+                            val statusDays = lots.map { daysUntil(it.expiry) }
+                            val tileColor = when { lots.isEmpty() -> Color(0xFF1B2525); statusDays.any { it < 0 } -> Color(0xFF48252E); statusDays.any { it <= 3 } -> Color(0xFF4B2928); statusDays.any { it <= 7 } -> Color(0xFF493A22); else -> Color(0xFF203A2A) }
+                            val borderColor = when { lots.isEmpty() -> Color.Transparent; statusDays.any { it < 0 } -> Color(0xFF783442); statusDays.any { it <= 3 } -> Color(0xFF85403E); statusDays.any { it <= 7 } -> Color(0xFF84612C); else -> Color(0xFF35553C) }
+                            Column(Modifier.weight(1f).height(39.dp).background(tileColor,RoundedCornerShape(10.dp)).border(if(day==selectedDay) 2.dp else 1.dp,if(day==selectedDay) Mint else borderColor,RoundedCornerShape(10.dp)).clickable { selectedDay=day },horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.Center) {
+                                Text(digits(day.toString()),color=JournalInk,fontSize=10.sp,fontWeight=if(day==selectedDay) FontWeight.Bold else FontWeight.Normal)
+                                if(lots.isNotEmpty()) Box(Modifier.size(4.dp).background(when { statusDays.any { it < 0 } -> Color(0xFF9A5360); statusDays.any { it <= 3 } -> Color(0xFFFF7774); statusDays.any { it <= 7 } -> Color(0xFFF2B65C); else -> Color(0xFFA8E993) },CircleShape))
+                            }
+                        }
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(9.dp),verticalAlignment=Alignment.CenterVertically) {
+                listOf(Color(0xFFA8E993) to s("Valid","معتبر",english),Color(0xFFF2B65C) to s("Near","نزدیک",english),Color(0xFFFF7774) to s("Critical","بحرانی",english),Color(0xFF9A5360) to s("Expired","منقضی",english)).forEach { (color,label) -> Row(verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(4.dp)) { Box(Modifier.size(7.dp).background(color,CircleShape)); Text(label,color=Muted,fontSize=8.sp) } }
+            }
+        }
+        JournalCard(Modifier.fillMaxWidth()) {
+            Text(s("Selected day · ", "محصولات روز ", english)+"${digits(selectedDay.toString())} ${if(english) monthNamesEn[month-1] else monthNamesFa[month-1]} ${digits(year.toString())}",color=JournalInk,fontSize=12.sp,fontWeight=FontWeight.Bold)
+            if(selectedLots.isEmpty()) Text(s("No expiry batches are registered for this day.","برای این روز محصولی با تاریخ انقضای ثبت‌شده وجود ندارد.",english),color=Muted,fontSize=10.sp,modifier=Modifier.padding(vertical=15.dp))
+            else selectedLots.forEachIndexed { index,item ->
+                Row(Modifier.fillMaxWidth().padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) { Text(item.product,color=JournalInk,fontSize=11.sp,fontWeight=FontWeight.Bold); Text("${digits(item.expiry)} · ${item.category}",color=Muted,fontSize=9.sp) }
+                    Text("${digits(item.quantity.toString())} ${s("units","عدد",english)}",color=Mint,fontSize=11.sp,fontWeight=FontWeight.Bold)
+                    IconButton(onClick={delete(item)}) { Icon(Icons.Rounded.DeleteOutline,null,tint=Muted) }
+                }
+                if(index!=selectedLots.lastIndex) HorizontalDivider(color=Color.White.copy(alpha=.07f))
+            }
+        }
+        if(batches.isEmpty()) Text(s("Add products manually or scan a barcode to begin.","برای شروع محصول را دستی ثبت کن یا بارکد را اسکن کن.",english),color=Muted,fontSize=10.sp,modifier=Modifier.padding(bottom=18.dp))
     }
 }
 
@@ -833,7 +848,7 @@ class MainActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     if (index == 2) {
-                        Box(Modifier.size(42.dp).background(if (active) Mint else Color(0xFF343A49), CircleShape), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(42.dp).background(if (active) Mint else Color(0xFF26332E), CircleShape), contentAlignment = Alignment.Center) {
                             Icon(item.second, null, tint = if (active) Color(0xFF102B27) else Muted, modifier = Modifier.size(22.dp))
                         }
                     } else {
