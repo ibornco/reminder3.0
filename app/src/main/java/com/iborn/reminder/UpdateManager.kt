@@ -15,7 +15,7 @@ import java.net.URL
 /** GitHub Releases based updater. Set GITHUB_REPOSITORY before building. */
 object UpdateManager {
     // Format: owner/repository. Example: myaccount/Reminder
-    const val GITHUB_REPOSITORY = "YOUR_GITHUB_USERNAME/YOUR_REPOSITORY"
+    const val GITHUB_REPOSITORY = "https://github.com/ibornco/reminder3.0/releases"
     private const val PREFS = "reminder_updater"
     private const val KEY_DOWNLOAD_ID = "download_id"
 
